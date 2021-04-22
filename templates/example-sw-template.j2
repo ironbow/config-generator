@@ -1,0 +1,396 @@
+hostname {{ hostname }}
+!
+no service pad
+service tcp-keepalives-in
+service tcp-keepalives-out
+service timestamps debug datetime local
+service timestamps log datetime msec localtime
+service password-encryption
+!
+!
+username admin password admin
+!
+!
+logging snmp-authfail
+no logging console
+no logging monitor
+!
+interface Loopback0
+ ip address 10.10.10.{{ loopback_id }} 255.255.255.255
+ no ip redirects
+ no ip unreachables
+ no ip proxy-arp
+!
+aaa new-model
+!
+aaa group server tacacs+ ISE_TACACS
+ server-private 10.201.88.11 key 7 06252F021D1B5A1A17320620091D
+ server-private 10.202.88.11 key 7 03277B28575A724F5C2C0D2E120B
+ ip tacacs source-interface loopback 0
+!
+aaa group server radius RADIUS-ISE
+ server-private 10.201.89.10 key 7 14341B180F0B6E7F3627262127
+ server-private 10.201.89.11 key 7 062506324F414D4D1718071F09
+ server-private 10.202.89.10 key 7 1531021F07256F703A3C203616
+ ip radius source-interface Loopback0
+!
+aaa authentication login AAA group ISE_TACACS local
+aaa authentication enable default group ISE_TACACS enable
+aaa authentication dot1x default group RADIUS-ISE
+aaa authorization console
+aaa authorization config-commands
+aaa authorization exec AAA group ISE_TACACS local if-authenticated
+aaa authorization commands 1 AAA group ISE_TACACS local if-authenticated
+aaa authorization commands 15 AAA group ISE_TACACS local if-authenticated
+aaa authorization network default group RADIUS-ISE
+aaa authorization network auth-list group RADIUS-ISE if-authenticated
+aaa authorization auth-proxy default group RADIUS-ISE
+aaa accounting auth-proxy default start-stop group RADIUS-ISE
+aaa accounting dot1x default start-stop group RADIUS-ISE
+aaa accounting exec AAA start-stop group ISE_TACACS
+aaa accounting commands 1 AAA start-stop group ISE_TACACS
+aaa accounting commands 15 AAA start-stop group ISE_TACACS
+!
+aaa server radius dynamic-author
+ client 10.201.89.10 server-key 7 14341B180F0B6E7F3627262127
+ client 10.201.89.11 server-key 7 062506324F414D4D1718071F09
+ client 10.202.89.11 server-key 7 1531021F07256F703A3C203616
+
+aaa session-id common
+clock timezone EST -5
+clock summer-time EDT recurring
+system mtu 1500
+authentication mac-move permit
+ip subnet-zero
+ip routing
+no ip icmp rate-limit unreachable DF
+no ip domain-lookup
+ip domain-name domain.com
+ip name-server 10.14.200.22
+ip name-server 10.21.200.20
+!
+spanning-tree vlan 2-1000 priority 4096
+!
+vtp mode transparent
+vtp domain DOMAIN
+vtp version 3
+!
+!
+dot1x system-auth-control
+dot1x critical eapol
+errdisable recovery cause bpduguard
+errdisable recovery cause channel-misconfig (STP)
+errdisable recovery cause sfp-config-mismatch
+spanning-tree mode rapid-pvst
+spanning-tree logging
+spanning-tree portfast default
+spanning-tree portfast bpduguard default
+spanning-tree etherchannel guard misconfig
+spanning-tree extend system-id
+!
+vlan internal allocation policy ascending
+!
+ip tcp selective-ack
+ip tcp path-mtu-discovery
+no ip ftp passive
+crypto key generate rsa mod 2048 label ssh-key
+ip ssh version 2
+ip ssh server algorithm mac hmac-sha1
+ip ssh server algorithm encryption aes256-ctr
+!
+no ip dhcp snooping information option
+no ip source-route
+!
+!
+
+{% for vlan in vlan_ints %}
+vlan {{ vlan.id }}
+  name {{ vlan.name }}
+{% endfor %}
+
+
+{% for vlan in vlan_ints %}
+interface Vlan{{ vlan.id }}
+ description Site {{ site_number }} - {{ vlan.desc }}
+ ip address {{vlan.ip}} {{vlan.netmask}}
+ {% for helper in helper_addresses %}
+ ip helper-address {{ helper }}
+ {% endfor %}
+ no ip redirects
+ no ip proxy-arp
+!
+{% endfor %}
+
+{% for port_range in access_port_ranges %}
+  {% for port in range(port_range.start, port_range.end + 1) %}
+interface {{ port_range.label }}1/0/{{ port }}
+ switchport access vlan {{ core_data_vlan }}
+ switchport mode access
+ switchport voice vlan {{ core_voice_vlan }}
+ auto qos voip cisco-phone
+ trust device cisco-phone
+ authentication control-direction in
+ authentication event fail action next-method
+ authentication event server dead action authorize voice
+ authentication event server alive action reinitialize
+ authentication host-mode multi-auth
+ authentication order dot1x mab
+ authentication priority dot1x mab
+ authentication port-control auto
+ authentication periodic
+ authentication timer reauthenticate server
+ authentication timer inactivity server dynamic
+ authentication violation restrict
+ mab
+ snmp trap mac-notification change added
+ snmp trap mac-notification change removed
+ dot1x pae authenticator
+ dot1x timeout tx-period 4
+ auto qos voip cisco-phone
+ spanning-tree portfast
+ service-policy input AutoQos-4.0-CiscoPhone-Input-Policy
+ service-policy output AutoQos-4.0-Output-Policy
+!
+  {% endfor %}
+{% endfor %}
+
+{% for port_channel in port_channels %}
+  {% for interface in port_channel.interfaces %}
+interface {{ interface }}
+ description {{ port_channel.desc }}
+ channel-group {{ port_channel.channel_group_id }} mode active
+!
+  {% endfor %}
+interface port-channel {{ port_channel.channel_group_id }}
+description {{ port_channel.desc }}
+ switchport mode trunk
+ switchport trunk native vlan {{ port_channel.native_vlan }}
+ switchport trunk allowed vlan {{ port_channel.allowed_vlans }}
+ auto qos trust dscp
+ spanning-tree portfast disable
+ spanning-tree bpduguard disable
+!
+{% endfor %}
+!
+!
+interface GigabitEthernet{{ sw_uplink_port }}
+ description UPLINK to WAN Router {{ hostname }} int Gig{{ rtr_lan_port }}
+ switchport access vlan 1000
+ switchport mode access
+ channel-group 1 mode active
+ spanning-tree portfast disable
+ spanning-tree bpduguard disable
+
+
+interface port-channel 1
+ switchport access vlan 1000
+ switchport mode access
+ spanning-tree portfast disable
+ spanning-tree bpduguard disable
+!
+!
+ip route 0.0.0.0 0.0.0.0 {{rtr_lan_gateway_ip}}
+!
+interface Vlan1
+ no ip address
+ shutdown
+!
+!
+router ospf 10
+ log-adjacency-changes
+ passive-interface default
+ redistribute connected subnets
+ no passive-interface Vlan1000
+!
+!
+ip classless
+no ip forward-protocol nd
+no ip forward-protocol udp time
+no ip forward-protocol udp netbios-ns
+no ip forward-protocol udp netbios-dgm
+ip route 169.254.0.0 255.255.0.0 Null0
+!
+ip http server
+ip http authentication local
+ip http secure-server
+ip http secure-active-session-modules none
+ip http max-connections 48
+ip http active-session-modules none
+!
+ip access-list standard VTY-Permit
+ remark permit admin subnet
+ permit 10.201.88.0 0.0.0.255
+ remark deny-rest
+ deny any log
+!
+ip access-list extended Guest-Permit-ACL
+ permit udp any any eq domain
+ permit udp any eq bootps any eq bootpc
+ permit ip any host 10.10.10.10
+ permit ip any host 10.10.10.11
+ deny   ip any 10.0.0.0 0.255.255.255
+ deny   ip any 172.16.0.0 0.15.255.255
+ deny   ip any 192.168.0.0 0.0.255.255
+ permit ip any any
+!
+ip access-list standard SNMP-RO-Permit
+ remark Netbrain
+ permit 10.10.10.30
+ remark 200-solar03
+ permit 10.10.10.23
+ remark 200-solar02
+ permit 10.10.10.22
+ remark 200-solar01
+ permit 10.10.10.21
+ remark deny-rest
+ deny   any log
+ !
+ip access-list extended ACL-WEBAUTH-REDIRECT
+ deny   icmp any any
+ deny   udp any any eq domain
+ deny   udp any range bootps 65347 any range bootpc 65348
+ deny   udp any any range bootps 65347
+ deny   ip any host 10.201.89.10
+ deny   ip any host 10.201.89.11
+ deny   ip any host 10.202.89.10
+ permit tcp any any eq www
+ permit tcp any any eq 443
+
+ip access-list extended ACL-POSTURE-REDIRECT
+ deny   icmp any any
+ deny   udp any any eq domain
+ deny   udp any range bootps 65347 any range bootpc 65348
+ deny   udp any any range bootps 65347
+ deny   udp any host 10.201.89.10 eq 8905
+ deny   udp any host 10.201.89.10 eq 8906
+ deny   tcp any host 10.201.89.10 eq 8443
+ deny   tcp any host 10.201.89.10 eq 8905
+ deny   udp any host 10.201.89.11 eq 8905
+ deny   udp any host 10.201.89.11 eq 8906
+ deny   tcp any host 10.201.89.11 eq 8443
+ deny   tcp any host 10.201.89.11 eq 8905
+ deny   udp any host 10.202.89.10 eq 8905
+ deny   udp any host 10.202.89.10 eq 8906
+ deny   tcp any host 10.202.89.10 eq 8443
+ deny   tcp any host 10.202.89.10 eq 8905
+ deny   tcp any host 10.15.201.40 eq www
+ deny   tcp any host 10.15.201.40 eq 443
+ permit ip any any
+!
+!
+logging host 10.10.10.27
+logging host 10.10.10.20
+logging host 10.10.10.14
+ip radius source-interface Loopback0
+ip sla enable reaction-alerts
+logging facility local6
+logging source-interface Loopback0
+!
+!
+lldp run
+cdp timer 120
+cdp holdtime 240
+!
+snmp-server group SNMP_RO v3 priv read SNMP-View_RO write SNMP-View_RW_Restrict access SNMP-RO-Permit
+snmp-server view SNMP-View_RO internet included
+snmp-server view SNMP-View_RW_Restrict internet excluded
+snmp-server user npm-snmp3-ro SNMP_RO v3 auth sha Z_2Ck*BKtC&1y* priv aes 128 O_r_kW*U#3)Ky&
+snmp-server host 10.201.88.20 informs version 3 priv npm-snmp3-ro
+snmp-server host 10.201.88.20 version 3 priv npm-snmp3-ro
+snmp-server host 10.202.88.14 informs version 3 priv npm-snmp3-ro
+snmp-server host 10.202.88.14 version 3 priv npm-snmp3-ro
+snmp-server group SNMP_RO v3 priv context vlan- match prefix read SNMP-View_RO notify SNMP-View_RO access SNMP-RO-Permit
+snmp-server location {{full_site_name}}
+snmp-server contact CIS TAC  703-679-3200
+snmp-server enable traps snmp authentication linkdown linkup coldstart warmstart
+snmp-server enable traps tty
+snmp-server enable traps ospf state-change
+snmp-server enable traps ospf errors
+snmp-server enable traps ospf retransmit
+snmp-server enable traps ospf lsa
+snmp-server enable traps ospf cisco-specific state-change nssa-trans-change
+snmp-server enable traps ospf cisco-specific state-change shamlink interface
+snmp-server enable traps ospf cisco-specific state-change shamlink neighbor
+snmp-server enable traps ospf cisco-specific errors
+snmp-server enable traps ospf cisco-specific retransmit
+snmp-server enable traps ospf cisco-specific lsa
+snmp-server enable traps entity
+snmp-server enable traps cpu threshold
+snmp-server enable traps vtp
+snmp-server enable traps flash insertion removal
+snmp-server enable traps envmon fan shutdown supply temperature status
+snmp-server enable traps config
+snmp-server enable traps pim neighbor-change rp-mapping-change invalid-pim-message
+snmp-server enable traps stpx inconsistency root-inconsistency loop-inconsistency
+snmp-server enable traps vlan-membership
+!
+!
+radius-server attribute 6 on-for-login-auth
+radius-server attribute 6 support-multiple
+radius-server attribute 8 include-in-access-req
+radius-server attribute 32 include-in-access-req
+radius-server attribute 25 access-request include
+radius-server dead-criteria time 5 tries 3
+radius-server retransmit 5
+radius-server deadtime 10
+radius-server vsa send accounting
+radius-server vsa send authentication
+!
+!
+tacacs source-interface loopback 0
+!
+banner exec ^
+##############################################################################
+You have entered $(hostname).$(domain) on line $(line) -- {{full_site_name}}
+                                    Site  Core Switch
+        Access to this device is reserved for authorized personnel only.
+##############################################################################
+^
+banner login ^
+
+*******************************    WARNING    *******************************
+ This system and all related hardware, software, systems and networks
+ (computing resources) are the property of Company and are for use
+ by authorized users only.  All individuals using these computing resources
+ acknowledge and consent to the monitoring of their activity.  Any activity
+ that is inconsistent with our policies and procedures can be reviewed by
+ management personnel and evaluated for possible disciplinary action.
+ Additionally, when activity is discovered that may constitute criminal
+ conduct, it will be reported to law enforcement officials.
+*******************************    WARNING    *******************************
+
+^
+
+
+!
+line con 0
+authorization exec AAA
+ login authentication AAA
+logging synchronous
+ exec-timeout 15 0
+line vty 0 4
+ exec-timeout 15 0
+logging synchronous
+authorization exec AAA
+ login authentication AAA
+ transport input ssh
+line vty 5 15
+ exec-timeout 15 0
+logging synchronous
+authorization exec AAA
+ login authentication AAA
+ transport input ssh
+!
+ntp server 10.201.254.251
+ntp server 10.202.254.251
+ntp server 10.201.254.252
+ntp server 10.202.254.252
+
+
+***********************After Deployment*****************************
+
+line vty 0 15
+access-class VTY-Permit in
+
+ip dhcp snooping vlan 1-999
+ip dhcp snooping

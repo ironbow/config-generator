@@ -1,0 +1,91 @@
+## SITE VARIABLES
+hostname: 446-core3850-mdf-flr2-01
+rtr_lan_gateway_ip: 10.180.31.1
+full_site_name: 446-Columbia, MD
+loopback_id: 104
+sw_uplink_port: 1/1/1
+rtr_lan_port: 0/0/2
+
+access_port_ranges:
+  - label: Gi
+    # Only port number, e.g. 1/0/1 is 1, 1/0/10 is 10
+    start: 1
+    end: 36
+  - label: Te
+    start: 37
+    end: 48
+
+access_point_ports:
+  - Gi1/0/20
+  - Gi1/0/22
+  - Gi1/0/24
+
+printer_ports:
+  - Gi1/0/26
+  - Gi1/0/27
+
+port_channels:
+  - channel_group_id: 2
+    interfaces:
+      - Gi1/1/2
+      - Gi2/1/2
+    desc: Trunk Switch 1 interface -NA
+    native_vlan: 1000
+    allowed_vlans: 2-1000
+    channel_group: 2
+
+
+core_data_vlan: 20
+core_voice_vlan: 22
+site_number: 446
+
+## GATEWAY VARIABLES
+helper_addresses:
+  - 10.201.8.33
+  - 10.202.8.33
+
+vlan_ints:
+  - id: 10
+    name: Floor1_Data
+    ip: 10.180.24.1
+    netmask: 255.255.255.128
+  - id: 12
+    name: Floor1_VoIP
+    ip: 10.180.25.1
+    netmask: 255.255.255.128
+  - id: 20
+    name: Floor2_Data
+    ip: 10.180.26.1
+    netmask: 255.255.255.128
+  - id: 22
+    name: Floor2_VoIP
+    ip: 10.180.26.1
+    netmask: 255.255.255.128
+  - id: 250
+    name:
+    ip: 10.180.28.1
+    netmask: 255.255.255.0
+  - id: 252
+    name:
+    ip: 10.180.29.1
+    mask: 255.255.255.128
+  - id: 253
+    name:
+    ip: 10.180.29.129
+    netmask: 255.255.255.128
+  - id: 254
+    name:
+    ip: 10.180.30.1
+    netmask: 255.255.255.128
+  - id: 255
+    name:
+    ip: 10.180.30.129
+    netmask: 255.255.255.128
+  - id: 1000
+    name:
+    ip: 10.180.31.2
+    netmask: 255.255.255.128
+
+    ##[more IDF vlans, reference list in template]
+
+
